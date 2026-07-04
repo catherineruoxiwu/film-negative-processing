@@ -2,6 +2,8 @@
 
 A lightweight, browser-based batch converter for phone-shot color negatives.
 
+[Live Demo](https://catherineruoxiwu.github.io/film-negative-processing/)
+
 All image processing happens locally in your browser. Your photos are never uploaded.
 
 ## Development
