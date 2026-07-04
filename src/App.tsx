@@ -27,6 +27,7 @@ import type {
 const ACCEPTED_EXTENSIONS = [".jpg", ".jpeg", ".png", ".heic", ".heif"];
 const PREVIEW_DEBOUNCE_MS = 70;
 const PREVIEW_MAX_LONG_EDGE = 1000;
+const THUMBNAIL_MAX_LONG_EDGE = 160;
 const MAX_CACHED_PREVIEWS = 8;
 const EMPTY_EXPORT_STATE: ExportState = {
   running: false,
@@ -39,6 +40,7 @@ export default function App() {
   const fileInputRef = useRef<HTMLInputElement | null>(null);
   const imagesRef = useRef<ImportedImage[]>([]);
   const previewUrlRef = useRef<string | undefined>(undefined);
+  const thumbnailUrlsRef = useRef<Record<string, string>>({});
   const previewCacheRef = useRef<Map<string, ImageData>>(new Map());
   const [images, setImages] = useState<ImportedImage[]>([]);
   const [selectedId, setSelectedId] = useState<string>();
@@ -49,6 +51,8 @@ export default function App() {
   const [adjustmentScope, setAdjustmentScope] = useState<AdjustmentScope>("global");
   const [isPickingOrange, setIsPickingOrange] = useState(false);
   const [previewUrl, setPreviewUrl] = useState<string>();
+  const [previewUrlImageId, setPreviewUrlImageId] = useState<string>();
+  const [thumbnailUrls, setThumbnailUrls] = useState<Record<string, string>>({});
   const [previewError, setPreviewError] = useState<string>();
   const [isPreviewProcessing, setIsPreviewProcessing] = useState(false);
   const [notice, setNotice] = useState<string>();
@@ -81,11 +85,16 @@ export default function App() {
   }, [previewUrl]);
 
   useEffect(() => {
+    thumbnailUrlsRef.current = thumbnailUrls;
+  }, [thumbnailUrls]);
+
+  useEffect(() => {
     return () => {
       imagesRef.current.forEach((image) => URL.revokeObjectURL(image.objectUrl));
       if (previewUrlRef.current) {
         URL.revokeObjectURL(previewUrlRef.current);
       }
+      Object.values(thumbnailUrlsRef.current).forEach((url) => URL.revokeObjectURL(url));
       previewCacheRef.current.clear();
     };
   }, []);
@@ -96,6 +105,7 @@ export default function App() {
         if (previousUrl) URL.revokeObjectURL(previousUrl);
         return undefined;
       });
+      setPreviewUrlImageId(undefined);
       setPreviewError(undefined);
       setIsPreviewProcessing(false);
       return;
@@ -126,6 +136,7 @@ export default function App() {
           if (previousUrl) URL.revokeObjectURL(previousUrl);
           return url;
         });
+        setPreviewUrlImageId(selectedImage.id);
       })
       .catch(() => {
         if (!cancelled) {
@@ -142,6 +153,53 @@ export default function App() {
       cancelled = true;
     };
   }, [selectedImage, debouncedPreviewParams, previewMode, selectedOrangeSelection]);
+
+  useEffect(() => {
+    if (previewMode !== "positive" || images.length === 0) {
+      return;
+    }
+
+    let cancelled = false;
+
+    void (async () => {
+      for (const image of images) {
+        try {
+          const params = getEffectiveParamsForImage(image.id, globalParams, imageParams);
+          const url = await processFileToObjectUrl(
+            image.file,
+            params,
+            orangeSelections[image.id],
+            THUMBNAIL_MAX_LONG_EDGE,
+            0.82,
+          );
+
+          if (cancelled) {
+            URL.revokeObjectURL(url);
+            continue;
+          }
+
+          setThumbnailUrls((current) => {
+            const previousUrl = current[image.id];
+
+            if (previousUrl) {
+              URL.revokeObjectURL(previousUrl);
+            }
+
+            return {
+              ...current,
+              [image.id]: url,
+            };
+          });
+        } catch {
+          // Keep the original thumbnail if a processed thumbnail cannot be generated.
+        }
+      }
+    })();
+
+    return () => {
+      cancelled = true;
+    };
+  }, [images, previewMode, globalParams, imageParams, orangeSelections]);
 
   const handleImportClick = () => {
     fileInputRef.current?.click();
@@ -323,7 +381,9 @@ export default function App() {
   };
 
   const previewSrc =
-    previewMode === "negative" ? selectedImage?.objectUrl : previewUrl ?? selectedImage?.objectUrl;
+    previewMode === "negative" || previewUrlImageId !== selectedImage?.id
+      ? selectedImage?.objectUrl
+      : previewUrl ?? selectedImage?.objectUrl;
 
   return (
     <main className="app-shell">
@@ -395,6 +455,7 @@ export default function App() {
               images={images}
               selectedId={selectedId}
               mode={previewMode}
+              processedUrls={thumbnailUrls}
               onSelect={setSelectedId}
             />
           </div>
@@ -572,6 +633,21 @@ async function getCachedPreviewImageData(
   }
 
   return imageData;
+}
+
+async function processFileToObjectUrl(
+  file: File,
+  params: ConvertParams,
+  orangeRegion: OrangeSelection | undefined,
+  maxLongEdge: number,
+  quality: number,
+): Promise<string> {
+  const { imageData } = await fileToImageData(file, maxLongEdge);
+  const converted = convertNegative(imageData, params, {
+    orangeRegion,
+  });
+  const blob = await imageDataToBlob(converted, "image/jpeg", quality);
+  return URL.createObjectURL(blob);
 }
 
 function useDebouncedValue<T>(value: T, delay: number): T {

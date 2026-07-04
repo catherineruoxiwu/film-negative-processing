@@ -144,6 +144,7 @@ export function ImagePreview({
     const nextSelection = normalizeMinimumSelection(
       rectFromPoints(dragStartRef.current, point),
       point,
+      imageBox,
     );
 
     dragStartRef.current = null;
@@ -252,19 +253,24 @@ function rectFromPoints(
 function normalizeMinimumSelection(
   selection: OrangeSelection,
   center: { x: number; y: number },
+  imageBox: ImageBox | undefined,
 ): OrangeSelection {
-  const minSize = 0.035;
+  const fallbackPixelSize = 8;
+  const minWidth = imageBox ? fallbackPixelSize / imageBox.width : 0.01;
+  const minHeight = imageBox ? fallbackPixelSize / imageBox.height : 0.01;
 
-  if (selection.width >= minSize && selection.height >= minSize) {
+  if (selection.width >= minWidth && selection.height >= minHeight) {
     return selection;
   }
 
-  const size = 0.12;
+  const width = Math.min(minWidth, 1);
+  const height = Math.min(minHeight, 1);
+
   return {
-    x: clamp(center.x - size / 2, 0, 1 - size),
-    y: clamp(center.y - size / 2, 0, 1 - size),
-    width: size,
-    height: size,
+    x: clamp(center.x - width / 2, 0, 1 - width),
+    y: clamp(center.y - height / 2, 0, 1 - height),
+    width,
+    height,
   };
 }
 
