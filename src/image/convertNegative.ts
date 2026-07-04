@@ -1,5 +1,6 @@
 import { detectOrangeMask } from "./detectOrangeMask";
 import {
+  type RGB,
   clamp,
   linearToSrgbChannel,
   safeGain,
@@ -13,6 +14,7 @@ const EPSILON = 0.000001;
 const WHITE_BALANCE_STRENGTH = 0.22;
 
 type ConvertOptions = {
+  orangeBase?: RGB;
   orangeRegion?: OrangeSelection;
 };
 
@@ -23,7 +25,7 @@ export function convertNegative(
 ): ImageData {
   const { data, width, height } = imageData;
   const pixelCount = width * height;
-  const base = detectOrangeMask(imageData, options.orangeRegion);
+  const base = options.orangeBase ?? detectOrangeMask(imageData, options.orangeRegion);
   const neutralBase = Math.max((base.r + base.g + base.b) / 3, EPSILON);
   const rBase = neutralBase * (base.r / neutralBase) ** params.orangeRemoval;
   const gBase = neutralBase * (base.g / neutralBase) ** params.orangeRemoval;

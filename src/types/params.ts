@@ -20,6 +20,8 @@ export type SliderKey = keyof ConvertParams;
 
 export type AdjustmentScope = "global" | "single";
 
+export type ExportMaxLongEdge = 6000 | 4000 | 2400 | undefined;
+
 export type SliderConfig = {
   key: SliderKey;
   label: string;

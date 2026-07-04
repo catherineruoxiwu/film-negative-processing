@@ -6,6 +6,7 @@ import { SliderPanel } from "./components/SliderPanel";
 import { ThumbnailStrip } from "./components/ThumbnailStrip";
 import { TopBar } from "./components/TopBar";
 import { convertNegative } from "./image/convertNegative";
+import { detectOrangeMaskWithDebug, type OrangeMaskDebug } from "./image/detectOrangeMask";
 import {
   fileToImageData,
   fileToImageSize,
@@ -15,6 +16,7 @@ import {
   DEFAULT_PARAMS,
   type AdjustmentScope,
   type ConvertParams,
+  type ExportMaxLongEdge,
   type SliderKey,
 } from "./types/params";
 import type {
@@ -48,11 +50,13 @@ export default function App() {
   const [globalParams, setGlobalParams] = useState<ConvertParams>(DEFAULT_PARAMS);
   const [imageParams, setImageParams] = useState<Record<string, ConvertParams>>({});
   const [orangeSelections, setOrangeSelections] = useState<Record<string, OrangeSelection>>({});
+  const [exportMaxLongEdge, setExportMaxLongEdge] = useState<ExportMaxLongEdge>(4000);
   const [adjustmentScope, setAdjustmentScope] = useState<AdjustmentScope>("global");
   const [isPickingOrange, setIsPickingOrange] = useState(false);
   const [previewUrl, setPreviewUrl] = useState<string>();
   const [previewUrlImageId, setPreviewUrlImageId] = useState<string>();
   const [thumbnailUrls, setThumbnailUrls] = useState<Record<string, string>>({});
+  const [orangeDebug, setOrangeDebug] = useState<OrangeMaskDebug>();
   const [previewError, setPreviewError] = useState<string>();
   const [isPreviewProcessing, setIsPreviewProcessing] = useState(false);
   const [notice, setNotice] = useState<string>();
@@ -106,6 +110,7 @@ export default function App() {
         return undefined;
       });
       setPreviewUrlImageId(undefined);
+      setOrangeDebug(undefined);
       setPreviewError(undefined);
       setIsPreviewProcessing(false);
       return;
@@ -118,7 +123,14 @@ export default function App() {
     getCachedPreviewImageData(selectedImage, previewCacheRef.current)
       .then((sourceImageData) => {
         if (cancelled) return undefined;
+        const nextOrangeDebug = detectOrangeMaskWithDebug(
+          sourceImageData,
+          selectedOrangeSelection,
+        );
+
+        setOrangeDebug(nextOrangeDebug);
         const converted = convertNegative(sourceImageData, debouncedPreviewParams, {
+          orangeBase: nextOrangeDebug.base,
           orangeRegion: selectedOrangeSelection,
         });
         return imageDataToBlob(converted, "image/jpeg", 0.9);
@@ -345,6 +357,7 @@ export default function App() {
         image,
         params: getEffectiveParamsForImage(image.id, globalParams, imageParams),
         orangeRegion: orangeSelections[image.id],
+        exportMaxLongEdge,
       }));
 
       const result =
@@ -364,6 +377,7 @@ export default function App() {
           image,
           params: getEffectiveParamsForImage(image.id, globalParams, imageParams),
           orangeRegion: orangeSelections[image.id],
+          exportMaxLongEdge,
         }));
         const result = await exportOnMainThread(exportJobs, setExportState);
         downloadBlob(result.blob, "film-converted.zip");
@@ -464,8 +478,11 @@ export default function App() {
             scope={adjustmentScope}
             canUseSingleScope={Boolean(selectedId)}
             hasLocalAdjustments={selectedHasLocalAdjustments}
+            exportMaxLongEdge={exportMaxLongEdge}
+            orangeDebug={orangeDebug}
             onChange={updateParam}
             onScopeChange={setAdjustmentScope}
+            onExportMaxLongEdgeChange={setExportMaxLongEdge}
             onResetToDefault={resetActiveParamsToDefault}
             onClearLocal={clearSelectedLocalParams}
           />
@@ -485,6 +502,7 @@ type ExportJob = {
   image: ImportedImage;
   params: ConvertParams;
   orangeRegion?: OrangeSelection;
+  exportMaxLongEdge: ExportMaxLongEdge;
 };
 
 async function exportWithWorker(
@@ -536,6 +554,7 @@ async function exportWithWorker(
         file: job.image.file,
         params: job.params,
         orangeRegion: job.orangeRegion,
+        exportMaxLongEdge: job.exportMaxLongEdge,
       })),
     });
   });
@@ -549,7 +568,7 @@ async function exportOnMainThread(
   const failures: string[] = [];
 
   for (let index = 0; index < jobs.length; index += 1) {
-    const { image, params, orangeRegion } = jobs[index];
+    const { image, params, orangeRegion, exportMaxLongEdge } = jobs[index];
     setExportState({
       running: true,
       current: index,
@@ -558,7 +577,7 @@ async function exportOnMainThread(
     });
 
     try {
-      const { imageData } = await fileToImageData(image.file);
+      const { imageData } = await fileToImageData(image.file, exportMaxLongEdge);
       const converted = convertNegative(imageData, params, {
         orangeRegion,
       });

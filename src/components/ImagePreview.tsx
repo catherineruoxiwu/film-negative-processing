@@ -2,6 +2,8 @@ import { useCallback, useEffect, useRef, useState, type CSSProperties, type Poin
 import { ImageIcon, Loader2, Pipette, X } from "lucide-react";
 import type { OrangeSelection, PreviewMode } from "../types/imageTypes";
 
+type PreviewZoom = "fit" | "1.5x" | "2x";
+
 type ImagePreviewProps = {
   imageSrc?: string;
   mode: PreviewMode;
@@ -43,6 +45,7 @@ export function ImagePreview({
   const dragStartRef = useRef<{ x: number; y: number } | null>(null);
   const [imageBox, setImageBox] = useState<ImageBox>();
   const [draftSelection, setDraftSelection] = useState<OrangeSelection>();
+  const [previewZoom, setPreviewZoom] = useState<PreviewZoom>("fit");
   const activeSelection = draftSelection ?? orangeSelection;
 
   const updateImageBox = useCallback(() => {
@@ -78,6 +81,12 @@ export function ImagePreview({
   useEffect(() => {
     updateImageBox();
   }, [imageSrc, updateImageBox]);
+
+  useEffect(() => {
+    if (isPickingOrange) {
+      setPreviewZoom("fit");
+    }
+  }, [isPickingOrange]);
 
   useEffect(() => {
     const frame = frameRef.current;
@@ -153,6 +162,20 @@ export function ImagePreview({
   };
 
   const selectionStyle = getSelectionStyle(activeSelection, imageBox);
+  const imageClassName = previewZoom === "fit" ? "preview-image" : "preview-image zoomed";
+  const frameClassName = [
+    "preview-frame",
+    isPickingOrange ? "picking-orange" : "",
+    previewZoom === "fit" ? "" : "zoomed-preview",
+  ]
+    .filter(Boolean)
+    .join(" ");
+  const imageStyle =
+    previewZoom === "fit"
+      ? undefined
+      : ({
+          "--preview-zoom": previewZoom === "2x" ? 2 : 1.5,
+        } as CSSProperties);
 
   return (
     <section className="preview-region" aria-label="Image preview">
@@ -174,6 +197,18 @@ export function ImagePreview({
           </button>
         </div>
         <div className="preview-actions">
+          <div className="zoom-control" aria-label="Preview zoom">
+            {(["fit", "1.5x", "2x"] as const).map((zoom) => (
+              <button
+                key={zoom}
+                type="button"
+                className={previewZoom === zoom ? "active" : ""}
+                onClick={() => setPreviewZoom(zoom)}
+              >
+                {zoom === "fit" ? "Fit" : zoom}
+              </button>
+            ))}
+          </div>
           <button
             className={isPickingOrange ? "preview-tool active" : "preview-tool"}
             type="button"
@@ -202,17 +237,24 @@ export function ImagePreview({
 
       <div
         ref={frameRef}
-        className={isPickingOrange ? "preview-frame picking-orange" : "preview-frame"}
+        className={frameClassName}
       >
         {imageSrc ? (
-          <img ref={imageRef} src={imageSrc} alt={`${mode} preview`} onLoad={updateImageBox} />
+          <img
+            ref={imageRef}
+            className={imageClassName}
+            style={imageStyle}
+            src={imageSrc}
+            alt={`${mode} preview`}
+            onLoad={updateImageBox}
+          />
         ) : (
           <div className="preview-placeholder">
             <ImageIcon size={32} />
           </div>
         )}
 
-        {(isPickingOrange || activeSelection) && imageBox ? (
+        {(isPickingOrange || (activeSelection && previewZoom === "fit")) && imageBox ? (
           <div
             className={isPickingOrange ? "orange-selection-layer active" : "orange-selection-layer"}
             onPointerDown={handlePointerDown}

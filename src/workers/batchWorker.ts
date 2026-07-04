@@ -2,7 +2,7 @@
 
 import JSZip from "jszip";
 import { convertNegative } from "../image/convertNegative";
-import type { ConvertParams } from "../types/params";
+import type { ConvertParams, ExportMaxLongEdge } from "../types/params";
 import type { OrangeSelection } from "../types/imageTypes";
 
 type StartMessage = {
@@ -16,6 +16,7 @@ type ExportJob = {
   file: File;
   params: ConvertParams;
   orangeRegion?: OrangeSelection;
+  exportMaxLongEdge: ExportMaxLongEdge;
 };
 
 const worker = self as DedicatedWorkerGlobalScope;
@@ -35,7 +36,7 @@ async function exportBatch(jobs: ExportJob[]) {
     const failures: string[] = [];
 
     for (let index = 0; index < jobs.length; index += 1) {
-      const { file, params, orangeRegion } = jobs[index];
+      const { file, params, orangeRegion, exportMaxLongEdge } = jobs[index];
       worker.postMessage({
         type: "progress",
         current: index,
@@ -44,7 +45,7 @@ async function exportBatch(jobs: ExportJob[]) {
       });
 
       try {
-        const imageData = await fileToImageData(file);
+        const imageData = await fileToImageData(file, exportMaxLongEdge);
         const converted = convertNegative(imageData, params, { orangeRegion });
         const blob = await imageDataToBlob(converted);
         zip.file(`film_${String(index + 1).padStart(3, "0")}.jpg`, blob);
@@ -82,11 +83,20 @@ async function exportBatch(jobs: ExportJob[]) {
   }
 }
 
-async function fileToImageData(file: File): Promise<ImageData> {
+async function fileToImageData(
+  file: File,
+  maxLongEdge: ExportMaxLongEdge,
+): Promise<ImageData> {
   const bitmap = await createImageBitmap(file, {
     imageOrientation: "from-image",
   });
-  const canvas = new OffscreenCanvas(bitmap.width, bitmap.height);
+  const scale =
+    maxLongEdge && Math.max(bitmap.width, bitmap.height) > maxLongEdge
+      ? maxLongEdge / Math.max(bitmap.width, bitmap.height)
+      : 1;
+  const width = Math.max(1, Math.round(bitmap.width * scale));
+  const height = Math.max(1, Math.round(bitmap.height * scale));
+  const canvas = new OffscreenCanvas(width, height);
   const context = canvas.getContext("2d", { willReadFrequently: true });
 
   if (!context) {
@@ -94,8 +104,8 @@ async function fileToImageData(file: File): Promise<ImageData> {
     throw new Error("Canvas 2D is not available.");
   }
 
-  context.drawImage(bitmap, 0, 0);
-  const imageData = context.getImageData(0, 0, bitmap.width, bitmap.height);
+  context.drawImage(bitmap, 0, 0, width, height);
+  const imageData = context.getImageData(0, 0, width, height);
   bitmap.close();
   return imageData;
 }
